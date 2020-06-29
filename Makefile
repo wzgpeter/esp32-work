@@ -1,0 +1,104 @@
+PREFIX = /home/wzg/workspace/esp32/bin/xtensa-esp32-elf/bin/xtensa-esp32-elf-
+CC  = $(PREFIX)gcc
+CXX = $(PREFIX)g++
+AS  = $(PREFIX)as
+AR  = $(PREFIX)ar
+LD  = $(PREFIX)ld
+NM  = $(PREFIX)nm
+OBJCOPY = $(PREFIX)objcopy
+OBJDUMP = $(PREFIX)objdump
+
+OUTPUT_PATH = ./build
+
+
+# get current directory
+CUR_DIR := $(shell pwd)
+
+
+# define the root directory list here
+SRC_DIRS = \
+	test \
+	include \
+	freertos \
+	comps \
+	lib
+
+
+# list all of sub-directory here
+sub-dirs := $(shell find $(SRC_DIRS) -type d)
+
+INC_PATH := $(patsubst %, -I./%, $(sub-dirs))
+SRC_PATH := $(patsubst %, ./%,   $(sub-dirs))
+
+VPATH := $(SRC_PATH) 	#the system VPATH
+
+
+CFLAGS = -O0 -g --compile -std=gnu11 -fsigned-char -Wvolatile-register-var
+AFLAGS = -g
+DEFINES = -D_ESP_FREERTOS_INTERNAL
+LFLAGS = -Wl,-build-id=none -nostartfiles -nostdlib
+LIBS := ./lib/libhal.a
+
+
+#---------------------------------------------------------
+#Collect All object files
+
+C_FILES := $(foreach dir, $(SRC_PATH), $(wildcard $(dir)/*.c))
+C_OBJS := $(addprefix $(OUTPUT_PATH)/, $(patsubst %.c, %.o, $(notdir $(C_FILES))))
+
+A_FILES := $(foreach dir, $(SRC_PATH), $(wildcard $(dir)/*.s))
+A_OBJS := $(addprefix $(OUTPUT_PATH)/, $(patsubst %.s, %.o, $(notdir $(A_FILES))))
+
+OBJS := $(C_OBJS) $(A_OBJS)
+
+
+#---------------------------------------------------------
+#Generate Target ELF file
+
+.PHONY: all
+all : CHECKDIR  $(OUTPUT_PATH)/test  $(OUTPUT_PATH)/test-dumped.S
+
+$(OUTPUT_PATH)/test : $(OBJS)
+	@echo "\n"
+	@echo "####################"
+	@echo "start to linking ..."
+	$(CC) -o $@  $^  $(INC_PATH) $(LFLAGS) $(DEFINES) -L$(LIBS) -T esp32.ld -Xlinker -Map -Xlinker  $(OUTPUT_PATH)/1.map 
+
+
+# Generate Output Foler if not existed
+CHECKDIR:
+	mkdir -p $(OUTPUT_PATH)
+
+# Generate asm file from ELF file for analysis
+$(OUTPUT_PATH)/test-dumped.S : $(OUTPUT_PATH)/test
+	@echo "\n"
+	@echo "####################"
+	@echo "dump asm file from ELF"
+	$(OBJDUMP) -S $<  >  $@
+
+
+#---------------------------------------------------------
+#Generate *.doj file
+
+$(OUTPUT_PATH)/%.o : %.c			#the make file will search "%.c" files in "VPATH" path 
+	@echo "###################"
+	@echo "c file compile: $<"
+	$(CC) -c $(INC_PATH) $(CFLAGS) $(DEFINES) $< -o $@
+
+$(OUTPUT_PATH)/%.o : %.s			#the make file will search "%.s" files in "VPATH" path
+	@echo "##################"
+	@echo "s file compile: $<"
+	$(AS) -c $(INC_PATH) $(AFLAGS) $(DEFINES) $< -o $@
+
+
+#---------------------------------------------------------
+#Clean Operation
+
+.PHONY: clean
+clean:
+	rm -f $(OUTPUT_PATH)/*.map
+	rm -f $(OUTPUT_PATH)/test
+	rm -f $(OUTPUT_PATH)/*.o
+	rm -rf $(OUTPUT_PATH)
+
+
